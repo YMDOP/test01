@@ -28,8 +28,8 @@ spring:
   jpa:
     open-in-view: false
     hibernate:
-      # P0 阶段无实体；P2 建表后改为 update，交付前改为 validate
-      ddl-auto: none
+      # P1 起有实体：本阶段用 update 自动建表；交付前改为 validate + 迁移脚本
+      ddl-auto: update
     properties:
       hibernate:
         dialect: org.hibernate.community.dialect.SQLiteDialect

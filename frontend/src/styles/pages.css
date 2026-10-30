@@ -1,0 +1,334 @@
+/* ============================================================
+   页面级样式
+   ============================================================ */
+
+/* ---------- 指标卡 ---------- */
+.stat {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 104px;
+}
+
+.stat-label {
+  font-size: var(--fs-11);
+  letter-spacing: 0.16em;
+  color: var(--faint);
+  text-transform: uppercase;
+}
+
+.stat-value {
+  font-size: var(--fs-32);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-value.muted {
+  color: var(--faint);
+}
+
+.stat-value .unit {
+  font-size: var(--fs-13);
+  font-weight: 400;
+  color: var(--dim);
+  margin-left: 4px;
+  letter-spacing: 0;
+}
+
+.stat-foot {
+  margin-top: auto;
+  font-size: var(--fs-11);
+  color: var(--faint);
+}
+
+/* ---------- 设置页 ---------- */
+.settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(27, 33, 38, 0.7);
+}
+
+.settings-row:last-child {
+  border-bottom: none;
+}
+
+.settings-row-label {
+  font-size: var(--fs-13);
+  color: var(--ink);
+}
+
+.settings-row-hint {
+  margin-top: 3px;
+  font-size: var(--fs-11);
+  color: var(--faint);
+  line-height: 1.6;
+}
+
+.settings-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* 上传区 */
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 26px 18px;
+  border: 1px dashed var(--line-hover);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.015);
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+  cursor: pointer;
+  text-align: center;
+}
+
+.dropzone:hover {
+  border-color: rgba(182, 242, 74, 0.45);
+  background: rgba(182, 242, 74, 0.04);
+}
+
+.dropzone-mark {
+  font-size: var(--fs-18);
+  color: var(--accent);
+  letter-spacing: 0.2em;
+}
+
+.dropzone-text {
+  font-size: var(--fs-12);
+  color: var(--dim);
+}
+
+.dropzone-hint {
+  font-size: var(--fs-11);
+  color: var(--faint);
+}
+
+.preview {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #08090a;
+}
+
+.preview-thumb {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  filter: brightness(calc(var(--bg-brightness) * 1.15)) saturate(0.55) contrast(0.95)
+    blur(var(--bg-blur));
+}
+
+.preview-veil {
+  position: absolute;
+  inset: 0;
+  background: rgba(3, 4, 5, var(--bg-veil));
+}
+
+.preview-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 28%, rgba(0, 0, 0, 0.68) 100%);
+}
+
+.preview-label {
+  position: absolute;
+  left: 10px;
+  bottom: 8px;
+  z-index: 2;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--dim);
+}
+
+.preview-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--faint);
+  font-size: var(--fs-12);
+}
+
+/* ---------- 题库 / 双栏 ---------- */
+.split {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.cat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+}
+
+.cat-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  font-size: var(--fs-12);
+  color: var(--dim);
+  border: 1px solid transparent;
+}
+
+.cat-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--ink);
+}
+
+.cat-item.active {
+  background: rgba(182, 242, 74, 0.08);
+  border-color: rgba(182, 242, 74, 0.2);
+  color: var(--ink);
+}
+
+.cat-count {
+  margin-left: auto;
+  font-size: var(--fs-11);
+  color: var(--faint);
+}
+
+/* ---------- 练习 / 模拟骨架 ---------- */
+.param-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.param-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.param-label {
+  font-size: var(--fs-11);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: var(--fs-11);
+  color: var(--dim);
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+.chip:hover {
+  color: var(--ink);
+  border-color: var(--line-hover);
+}
+
+.chip.active {
+  color: var(--accent);
+  border-color: rgba(182, 242, 74, 0.45);
+  background: rgba(182, 242, 74, 0.1);
+}
+
+.blueprint {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.blueprint-item {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.blueprint-k {
+  font-size: var(--fs-11);
+  color: var(--faint);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.blueprint-v {
+  font-size: var(--fs-24);
+  font-weight: 700;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.notice {
+  border: 1px solid rgba(255, 176, 32, 0.28);
+  background: rgba(255, 176, 32, 0.06);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: var(--fs-12);
+  color: #e8c37a;
+  line-height: 1.7;
+}
+
+.notice strong {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+  text-transform: uppercase;
+}
+
+.tag.accent {
+  color: var(--accent);
+  border-color: rgba(182, 242, 74, 0.35);
+}
+
+@media (max-width: 1180px) {
+  .settings-grid,
+  .split,
+  .param-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .blueprint {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

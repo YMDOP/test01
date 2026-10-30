@@ -1,0 +1,59 @@
+/* ============================================================
+   设计 Token —— 全站唯一真源，禁止在组件里写死色值
+   ============================================================ */
+:root {
+  /* 底色与面板 */
+  --bg: #050607;
+  --panel: #0e1113;
+  --panel-2: #111518;
+  --panel-translucent: rgba(14, 17, 19, 0.72);
+  --line: #1b2126;
+  --line-hover: #2a3339;
+  --line-active: #3a4a52;
+
+  /* 文字 */
+  --ink: #e6edf3;
+  --dim: #7c8a96;
+  --faint: #4a565f;
+
+  /* 强调 */
+  --accent: #b6f24a;
+  --accent-2: #22d3ee;
+  --ok: #3ade9b;
+  --warn: #ffb020;
+  --danger: #ff5c5c;
+
+  /* 排版 */
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", "Cascadia Code", Consolas, monospace;
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-18: 18px;
+  --fs-24: 24px;
+  --fs-32: 32px;
+
+  /* 尺寸 */
+  --sidebar-w: 232px;
+  --topbar-h: 56px;
+  --radius: 2px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* 背景图参数（由设置页写入） */
+  --bg-enabled: 0;
+  --bg-brightness: 0.3;
+  --bg-blur: 0px;
+  --bg-veil: 0.78;
+
+  /* 动效 */
+  --dur: 150ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+
+  color-scheme: dark;
+}
