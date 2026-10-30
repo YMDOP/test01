@@ -1,8 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { fetchAiConfig, saveAiConfig, testAiConfig, type AiConfigView, type AiTestResult } from '@/api/ai'
+import {
+  importDocuments,
+  scanDocuments,
+  type ImportSummary,
+  type ScanSummary,
+} from '@/api/documents'
+import {
+  createJob,
+  fetchEstimate,
+  resetLibrary,
+  subscribeJob,
+  type Estimate,
+  type JobView,
+} from '@/api/generate'
 import { backgroundUrl } from '@/api/settings'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { MeterBar } from '@/components/MeterBar'
 import { PageHead } from '@/components/PageHead'
 import { StatusDot } from '@/components/StatusDot'
 import { TerminalCard } from '@/components/TerminalCard'
@@ -34,6 +49,19 @@ export function SettingsPage() {
   const [aiSaving, setAiSaving] = useState(false)
   const [aiMessage, setAiMessage] = useState('')
   const [aiResult, setAiResult] = useState<AiTestResult | null>(null)
+  const [docDir, setDocDir] = useState('C:\\Java\\obs-note\\Obsidian Vault\\java面试')
+  const [scan, setScan] = useState<ScanSummary | null>(null)
+  const [scanning, setScanning] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<ImportSummary | null>(null)
+  const [docMessage, setDocMessage] = useState('')
+  const [estimate, setEstimate] = useState<Estimate | null>(null)
+  const [job, setJob] = useState<JobView | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [genMessage, setGenMessage] = useState('')
+  const [confirmCost, setConfirmCost] = useState(false)
+  const [confirmReset, setConfirmReset] = useState(false)
+  const streamRef = useRef<EventSource | null>(null)
   const [aiForm, setAiForm] = useState({
     baseUrl: 'https://api.deepseek.com',
     model: 'deepseek-chat',
@@ -108,6 +136,113 @@ export function SettingsPage() {
       setAiMessage(e instanceof Error ? e.message : String(e))
     } finally {
       setAiTesting(false)
+    }
+  }
+
+  useEffect(() => {
+    void refreshEstimate()
+    return () => {
+      streamRef.current?.close()
+    }
+    // 只跑一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function refreshEstimate() {
+    try {
+      setEstimate(await fetchEstimate())
+    } catch (e) {
+      setGenMessage(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  async function handleScan() {
+    setScanning(true)
+    setDocMessage('')
+    try {
+      const result = await scanDocuments(docDir)
+      setScan(result)
+      setDocMessage(`扫描到 ${result.total} 个文件`)
+    } catch (e) {
+      setDocMessage(e instanceof Error ? e.message : String(e))
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  async function handleImport() {
+    setImporting(true)
+    setDocMessage('')
+    setImportResult(null)
+    try {
+      const result = await importDocuments(docDir)
+      setImportResult(result)
+      setDocMessage(
+        `导入完成：导入 ${result.imported}，跳过 ${result.skipped}，失败 ${result.failed}，切片 ${result.chunks}`,
+      )
+      void refreshEstimate()
+    } catch (e) {
+      setDocMessage(e instanceof Error ? e.message : String(e))
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  function openStream(jobId: string) {
+    streamRef.current?.close()
+    const source = subscribeJob(jobId)
+    streamRef.current = source
+    const update = (event: MessageEvent) => {
+      try {
+        setJob(JSON.parse(event.data) as JobView)
+      } catch {
+        // 忽略无法解析的帧
+      }
+    }
+    source.addEventListener('progress', update as EventListener)
+    source.addEventListener('done', (event) => {
+      update(event as MessageEvent)
+      setGenerating(false)
+      source.close()
+      void refreshEstimate()
+    })
+    source.addEventListener('error', () => {
+      setGenerating(false)
+      source.close()
+      setGenMessage('生成任务中断；重启服务后会自动续跑')
+    })
+  }
+
+  async function handleGenerate(confirm: boolean) {
+    setGenerating(true)
+    setGenMessage('')
+    try {
+      const result = await createJob(300, confirm)
+      if (result.needConfirm && !result.jobId) {
+        setEstimate(result.estimate)
+        setConfirmCost(true)
+        setGenerating(false)
+        return
+      }
+      if (result.jobId) {
+        openStream(result.jobId)
+      }
+    } catch (e) {
+      setGenMessage(e instanceof Error ? e.message : String(e))
+      setGenerating(false)
+    }
+  }
+
+  async function handleReset() {
+    try {
+      const result = await resetLibrary(true)
+      setGenMessage(
+        `已重置：删除 ${result.questionsDeleted} 道题，ai_usage 保留 ${result.aiUsageKept} 行`,
+      )
+      setJob(null)
+      void refreshEstimate()
+    } catch (e) {
+      setGenMessage(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -302,6 +437,130 @@ export function SettingsPage() {
                 </button>
                 <span className="settings-row-hint">删除文件并清除版本号</span>
               </div>
+            </div>
+          </TerminalCard>
+
+          <TerminalCard title="文档导入" subtitle="INGEST" corners>
+            <div className="settings-controls">
+              <div className="field">
+                <label className="field-label" htmlFor="doc-dir">
+                  笔记目录
+                </label>
+                <input
+                  id="doc-dir"
+                  className="input"
+                  value={docDir}
+                  onChange={(event) => setDocDir(event.target.value)}
+                />
+                <p className="settings-row-hint">
+                  递归扫描 md / docx / pdf；只读原文件，切片只写入 data/interviewforge.db。
+                </p>
+              </div>
+
+              <div className="row" style={{ flexWrap: 'wrap' }}>
+                <button type="button" className="btn" onClick={() => void handleScan()} disabled={scanning}>
+                  {scanning ? '扫描中…' : '扫描目录'}
+                </button>
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={() => void handleImport()}
+                  disabled={importing}
+                >
+                  {importing ? '导入中…' : '导入并切片'}
+                </button>
+                {scan ? <span className="tag">{scan.total} 个文件</span> : null}
+              </div>
+
+              {scan && scan.items.length > 0 ? (
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>文件</th>
+                        <th>类型</th>
+                        <th className="num">大小</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scan.items.slice(0, 5).map((item) => (
+                        <tr key={item.path}>
+                          <td>{item.filename}</td>
+                          <td>{item.ext}</td>
+                          <td className="num">{Math.round(item.size / 1024)} KB</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+
+              {importResult ? (
+                <p className="settings-row-hint" style={{ color: 'var(--ok)' }}>
+                  扫描 {importResult.scanned} · 导入 {importResult.imported} · 跳过 {importResult.skipped} ·
+                  失败 {importResult.failed} · 切片 {importResult.chunks} · 用时 {importResult.elapsedMs}ms
+                </p>
+              ) : null}
+
+              {docMessage ? <p className="settings-row-hint">{docMessage}</p> : null}
+            </div>
+          </TerminalCard>
+
+          <TerminalCard
+            title="生成题库"
+            subtitle="GENERATE"
+            corners
+            actions={<span className="tag">{job ? job.status : 'IDLE'}</span>}
+          >
+            <div className="settings-controls">
+              {estimate ? (
+                <p className="settings-row-hint">
+                  本轮可处理切片 {estimate.chunkCount} 个 · 预计调用 {estimate.estimatedCalls} 次 · 预计花费
+                  ¥{estimate.estimatedCost.toFixed(4)}（阈值 ¥{estimate.threshold}）
+                </p>
+              ) : null}
+
+              <div className="row" style={{ flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={() => void handleGenerate(false)}
+                  disabled={generating}
+                >
+                  {generating ? '生成中…' : '生成题库'}
+                </button>
+                <button
+                  type="button"
+                  className="btn danger"
+                  onClick={() => setConfirmReset(true)}
+                  disabled={generating}
+                >
+                  重置题库
+                </button>
+                <button type="button" className="btn ghost" onClick={() => void refreshEstimate()}>
+                  刷新预估
+                </button>
+              </div>
+
+              {job ? (
+                <>
+                  <MeterBar
+                    label={job.stage ?? '任务'}
+                    value={job.progress}
+                    tone={job.status === 'FAILED' ? 'danger' : 'accent'}
+                  />
+                  <p className="settings-row-hint">
+                    分类 {job.doneCategories}/{job.totalCategories} · 已生成 {job.questionCount} 题 ·{' '}
+                    {job.message}
+                  </p>
+                </>
+              ) : null}
+
+              {genMessage ? (
+                <p className="settings-row-hint" style={{ color: 'var(--accent-2)' }}>
+                  {genMessage}
+                </p>
+              ) : null}
             </div>
           </TerminalCard>
 
@@ -514,6 +773,31 @@ export function SettingsPage() {
 
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmCost}
+        title="确认生成题库？"
+        description={`预估花费 ¥${estimate?.estimatedCost.toFixed(4) ?? '0'}，已超过 ¥${estimate?.threshold ?? 5} 阈值。确认后开始调用 AI。`}
+        confirmText="继续生成"
+        onCancel={() => setConfirmCost(false)}
+        onConfirm={() => {
+          setConfirmCost(false)
+          void handleGenerate(true)
+        }}
+      />
+
+      <ConfirmDialog
+        open={confirmReset}
+        title="重置题库？"
+        description="将清空所有题目，以及掌握度、错题、练习与考试记录；ai_usage 历史保留。分类与切片保留。"
+        confirmText="重置"
+        danger
+        onCancel={() => setConfirmReset(false)}
+        onConfirm={() => {
+          setConfirmReset(false)
+          void handleReset()
+        }}
+      />
 
       <ConfirmDialog
         open={confirmOpen}

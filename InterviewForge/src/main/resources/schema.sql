@@ -195,3 +195,34 @@ CREATE TABLE IF NOT EXISTS schema_migration (
     version    TEXT PRIMARY KEY,
     applied_at TEXT NOT NULL
 );
+
+-- 17. 生成任务（主记录）
+CREATE TABLE IF NOT EXISTS generate_job (
+    id            TEXT PRIMARY KEY,
+    status        TEXT    NOT NULL,
+    stage         TEXT,
+    params_json   TEXT,
+    progress      INTEGER NOT NULL DEFAULT 0,
+    total_chunks  INTEGER NOT NULL DEFAULT 0,
+    total_categories INTEGER NOT NULL DEFAULT 0,
+    done_categories  INTEGER NOT NULL DEFAULT 0,
+    question_count   INTEGER NOT NULL DEFAULT 0,
+    estimated_cost   REAL    NOT NULL DEFAULT 0,
+    message       TEXT,
+    stats_json    TEXT,
+    created_at    TEXT    NOT NULL,
+    updated_at    TEXT    NOT NULL
+);
+
+-- 18. 生成任务的分步进度（按分类粒度，用于断点续跑）
+CREATE TABLE IF NOT EXISTS generate_job_step (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id      TEXT    NOT NULL,
+    category_id INTEGER,
+    category_name TEXT,
+    status      TEXT    NOT NULL,
+    question_count INTEGER NOT NULL DEFAULT 0,
+    error       TEXT,
+    updated_at  TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_generate_job_step_job ON generate_job_step (job_id);

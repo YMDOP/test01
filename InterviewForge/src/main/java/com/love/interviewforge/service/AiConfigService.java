@@ -140,9 +140,12 @@ public class AiConfigService {
     }
 
     private Resolved resolve(AiConfig config) {
-        String envKey = System.getenv(ENV_API_KEY);
-        if (envKey != null && !envKey.isBlank()) {
-            return new Resolved(config.getBaseUrl(), config.getModel(), envKey.trim(), "ENV");
+        // 约定变量优先；其次兼容 DeepSeek 官方常用名 DEEPSEEK_API_KEY
+        for (String envName : new String[] {ENV_API_KEY, "DEEPSEEK_API_KEY"}) {
+            String envKey = System.getenv(envName);
+            if (envKey != null && !envKey.isBlank()) {
+                return new Resolved(config.getBaseUrl(), config.getModel(), envKey.trim(), "ENV");
+            }
         }
         String decrypted = Crypto.decrypt(config.getApiKeyEnc());
         if (decrypted != null && !decrypted.isBlank()) {
