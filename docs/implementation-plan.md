@@ -1170,7 +1170,7 @@ cost = ( input_tokens    × input_miss_price
 | 只允许写工作区 | 默认 npm 缓存位于用户目录 | pnpm 统一加 `--store-dir .cache/pnpm-store` |
 | 禁止 piped stdio 子进程 | `spawn EPERM` | 前端构建前置 `NODE_OPTIONS=--require frontend/scripts/sandbox-shim.cjs`，仅拦截 vite 的 `net use` 探测 |
 | 默认符号链接布局解析失败 | `vite` 的传递依赖 `MODULE_NOT_FOUND` | `frontend/pnpm-workspace.yaml` 固定 `nodeLinker: hoisted` |
-| HTTPS 出网受限 | `git push` 报 schannel 凭据错误 | 提交在本地完成，推送由人工执行 `git push` |
+| HTTPS 出网受限 | 早期 `git push` 报 schannel 凭据错误 | 全权限模式下恢复；**当前推送走 HTTPS + Windows 凭据管理器** |
 
 标准命令：
 
