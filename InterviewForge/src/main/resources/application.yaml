@@ -28,13 +28,21 @@ spring:
   jpa:
     open-in-view: false
     hibernate:
-      # P1 起有实体：本阶段用 update 自动建表；交付前改为 validate + 迁移脚本
-      ddl-auto: update
+      # 表结构由 schema.sql 维护（幂等建表），实体只做映射
+      ddl-auto: none
     properties:
       hibernate:
         dialect: org.hibernate.community.dialect.SQLiteDialect
         format_sql: true
     show-sql: false
+    # 让 schema.sql 在 JPA 初始化完成前执行
+    defer-datasource-initialization: true
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+      continue-on-error: false
 
   servlet:
     multipart:

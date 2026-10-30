@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { fetchAiConfig, saveAiConfig, testAiConfig, type AiConfigView, type AiTestResult } from '@/api/ai'
 import { backgroundUrl } from '@/api/settings'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { PageHead } from '@/components/PageHead'
@@ -28,6 +29,22 @@ export function SettingsPage() {
   const [message, setMessage] = useState('')
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [health, setHealth] = useState<HealthInfo | null>(null)
+  const [ai, setAi] = useState<AiConfigView | null>(null)
+  const [aiTesting, setAiTesting] = useState(false)
+  const [aiSaving, setAiSaving] = useState(false)
+  const [aiMessage, setAiMessage] = useState('')
+  const [aiResult, setAiResult] = useState<AiTestResult | null>(null)
+  const [aiForm, setAiForm] = useState({
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-chat',
+    apiKey: '',
+    temperature: '0.4',
+    maxTokens: '4096',
+    inputMissPrice: '2.00',
+    inputHitPrice: '0.20',
+    cacheWritePrice: '2.00',
+    outputPrice: '8.00',
+  })
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -36,6 +53,63 @@ export function SettingsPage() {
       .then((body) => setHealth(body.data as HealthInfo))
       .catch(() => setHealth(null))
   }, [])
+
+  useEffect(() => {
+    fetchAiConfig()
+      .then((config) => {
+        setAi(config)
+        setAiForm((prev) => ({
+          ...prev,
+          baseUrl: config.baseUrl,
+          model: config.model,
+          temperature: String(config.temperature),
+          maxTokens: String(config.maxTokens),
+        }))
+      })
+      .catch((e: unknown) => setAiMessage(e instanceof Error ? e.message : String(e)))
+  }, [])
+
+  const keyFromEnv = ai?.keySource === 'ENV'
+  const keyConfigured = ai?.keySource === 'ENV' || ai?.keySource === 'DB'
+
+  async function handleSaveAi() {
+    setAiSaving(true)
+    setAiMessage('')
+    try {
+      const saved = await saveAiConfig({
+        baseUrl: aiForm.baseUrl,
+        model: aiForm.model,
+        apiKey: aiForm.apiKey || undefined,
+        temperature: Number(aiForm.temperature),
+        maxTokens: Number(aiForm.maxTokens),
+        inputMissPrice: Number(aiForm.inputMissPrice),
+        inputHitPrice: Number(aiForm.inputHitPrice),
+        cacheWritePrice: Number(aiForm.cacheWritePrice),
+        outputPrice: Number(aiForm.outputPrice),
+      })
+      setAi(saved)
+      setAiForm((prev) => ({ ...prev, apiKey: '' }))
+      setAiMessage('配置已保存')
+    } catch (e) {
+      setAiMessage(e instanceof Error ? e.message : String(e))
+    } finally {
+      setAiSaving(false)
+    }
+  }
+
+  async function handleTestAi() {
+    setAiTesting(true)
+    setAiMessage('')
+    setAiResult(null)
+    try {
+      const result = await testAiConfig()
+      setAiResult(result)
+    } catch (e) {
+      setAiMessage(e instanceof Error ? e.message : String(e))
+    } finally {
+      setAiTesting(false)
+    }
+  }
 
   const enabled = settings['ui.background.enabled'] === 'true'
   const version = settings['ui.background.version'] ?? '0'
@@ -231,6 +305,177 @@ export function SettingsPage() {
             </div>
           </TerminalCard>
 
+          <TerminalCard title="AI 配置" subtitle="CONNECTION" corners>
+            <div className="settings-controls">
+              <div className="field">
+                <label className="field-label" htmlFor="ai-base">
+                  Base URL
+                </label>
+                <input
+                  id="ai-base"
+                  className="input"
+                  value={aiForm.baseUrl}
+                  onChange={(event) => setAiForm({ ...aiForm, baseUrl: event.target.value })}
+                />
+              </div>
+
+              <div className="field">
+                <label className="field-label" htmlFor="ai-model">
+                  模型
+                </label>
+                <input
+                  id="ai-model"
+                  className="input"
+                  value={aiForm.model}
+                  onChange={(event) => setAiForm({ ...aiForm, model: event.target.value })}
+                />
+              </div>
+
+              <div className="field">
+                <label className="field-label" htmlFor="ai-key">
+                  API Key
+                  <span className="value">
+                    {keyFromEnv ? '环境变量' : ai?.keyMasked || '未配置'}
+                  </span>
+                </label>
+                <input
+                  id="ai-key"
+                  className="input"
+                  type="password"
+                  autoComplete="off"
+                  disabled={keyFromEnv}
+                  placeholder={keyFromEnv ? '由环境变量提供' : '留空表示不修改'}
+                  value={aiForm.apiKey}
+                  onChange={(event) => setAiForm({ ...aiForm, apiKey: event.target.value })}
+                />
+                <p className="settings-row-hint">
+                  {keyFromEnv
+                    ? '检测到环境变量 INTERVIEWFORGE_AI_API_KEY，优先使用它，此处不可编辑。'
+                    : 'Key 加密后存入本地库，接口只回显后 4 位。'}
+                </p>
+              </div>
+
+              <div className="grid grid-2">
+                <div className="field">
+                  <label className="field-label" htmlFor="ai-temp">
+                    温度
+                  </label>
+                  <input
+                    id="ai-temp"
+                    className="input"
+                    inputMode="decimal"
+                    value={aiForm.temperature}
+                    onChange={(event) => setAiForm({ ...aiForm, temperature: event.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label className="field-label" htmlFor="ai-maxtok">
+                    max_tokens
+                  </label>
+                  <input
+                    id="ai-maxtok"
+                    className="input"
+                    inputMode="numeric"
+                    value={aiForm.maxTokens}
+                    onChange={(event) => setAiForm({ ...aiForm, maxTokens: event.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="divider" />
+
+              <p className="param-label">定价（元 / 百万 token）</p>
+              <div className="grid grid-2">
+                <div className="field">
+                  <label className="field-label" htmlFor="price-miss">
+                    输入·未命中
+                  </label>
+                  <input
+                    id="price-miss"
+                    className="input"
+                    inputMode="decimal"
+                    value={aiForm.inputMissPrice}
+                    onChange={(event) => setAiForm({ ...aiForm, inputMissPrice: event.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label className="field-label" htmlFor="price-hit">
+                    输入·命中
+                  </label>
+                  <input
+                    id="price-hit"
+                    className="input"
+                    inputMode="decimal"
+                    value={aiForm.inputHitPrice}
+                    onChange={(event) => setAiForm({ ...aiForm, inputHitPrice: event.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label className="field-label" htmlFor="price-write">
+                    缓存写入
+                  </label>
+                  <input
+                    id="price-write"
+                    className="input"
+                    inputMode="decimal"
+                    value={aiForm.cacheWritePrice}
+                    onChange={(event) =>
+                      setAiForm({ ...aiForm, cacheWritePrice: event.target.value })
+                    }
+                  />
+                </div>
+                <div className="field">
+                  <label className="field-label" htmlFor="price-out">
+                    输出
+                  </label>
+                  <input
+                    id="price-out"
+                    className="input"
+                    inputMode="decimal"
+                    value={aiForm.outputPrice}
+                    onChange={(event) => setAiForm({ ...aiForm, outputPrice: event.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="row" style={{ flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={() => void handleSaveAi()}
+                  disabled={aiSaving}
+                >
+                  {aiSaving ? '保存中…' : '保存配置'}
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => void handleTestAi()}
+                  disabled={aiTesting || !keyConfigured}
+                >
+                  {aiTesting ? '测试中…' : '测试连接'}
+                </button>
+                <StatusDot
+                  tone={keyFromEnv ? 'ok' : keyConfigured ? 'ok' : 'warn'}
+                  label={keyFromEnv ? 'ENV' : keyConfigured ? 'DB' : 'NOT SET'}
+                />
+              </div>
+
+              {aiResult ? (
+                <p className="settings-row-hint" style={{ color: 'var(--ok)' }}>
+                  连接成功 · {aiResult.model} · 延迟 {aiResult.latencyMs}ms · tokens{' '}
+                  {aiResult.usage.totalTokens} · 本次花费 ¥{aiResult.estCost.toFixed(6)}
+                </p>
+              ) : null}
+
+              {aiMessage ? (
+                <p className="settings-row-hint" style={{ color: 'var(--accent-2)' }}>
+                  {aiMessage}
+                </p>
+              ) : null}
+            </div>
+          </TerminalCard>
+
           <TerminalCard title="系统信息" subtitle="RUNTIME">
             <dl className="kv" style={{ fontSize: 12 }}>
               <dt>应用</dt>
@@ -267,15 +512,6 @@ export function SettingsPage() {
             </p>
           </TerminalCard>
 
-          <TerminalCard title="AI 配置" subtitle="P2">
-            <div className="notice">
-              <strong>尚未接入。</strong>
-              <br />
-              P2 会在此处提供 Base URL、模型、API Key 与定价表。Key 通过环境变量
-              <code style={{ color: 'var(--accent)' }}> INTERVIEWFORGE_AI_API_KEY </code>
-              优先注入，不写入仓库。
-            </div>
-          </TerminalCard>
         </div>
       </div>
 

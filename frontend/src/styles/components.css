@@ -92,8 +92,8 @@
   height: 20px;
   padding: 0 5px;
   border: 1px solid var(--line-hover);
-  border-bottom-color: #333d44;
-  border-radius: 3px;
+  border-bottom-color: var(--line-active);
+  border-radius: 2px;
   background: rgba(255, 255, 255, 0.03);
   color: var(--dim);
   font-size: 10px;
@@ -697,6 +697,25 @@
   height: 1px;
   background: var(--line);
   margin: var(--space-4) 0;
+}
+
+/* ---------- 描述列表 ---------- */
+.kv {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr;
+  gap: 8px 16px;
+  margin: 0;
+  font-size: var(--fs-12);
+}
+
+.kv dt {
+  color: var(--dim);
+}
+
+.kv dd {
+  margin: 0;
+  color: var(--ink);
+  word-break: break-all;
 }
 
 @media (max-width: 1180px) {

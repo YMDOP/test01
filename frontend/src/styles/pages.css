@@ -126,7 +126,7 @@
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
-  background: #08090a;
+  background: var(--bg);
 }
 
 .preview-thumb {
@@ -295,7 +295,7 @@
   border-radius: var(--radius);
   padding: 12px 14px;
   font-size: var(--fs-12);
-  color: #e8c37a;
+  color: var(--warn-soft);
   line-height: 1.7;
 }
 
