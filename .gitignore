@@ -1,0 +1,112 @@
+# ============================================================
+# InterviewForge .gitignore
+# 原则：密钥 / 隐私 / 运行时产物 一律不入库。
+# 任何疑惑时，宁可忽略，后续用 git add -f 显式放行。
+# ============================================================
+
+# ------------------------------------------------------------
+# 一、密钥与本地配置（最高优先级）
+# ------------------------------------------------------------
+
+# 环境变量文件（只允许提交样例文件）
+.env
+.env.*
+!.env.example
+
+# Spring 本地 / 密钥配置（用于覆盖 application.yaml 中的敏感项）
+**/application-local.yml
+**/application-local.yaml
+**/application-local.properties
+**/application-secret.yml
+**/application-secret.yaml
+**/application-secret.properties
+**/bootstrap-local.yml
+**/bootstrap-local.yaml
+**/config/local/**
+
+# 证书、私钥、密钥库
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.crt
+*.cer
+
+# ------------------------------------------------------------
+# 二、运行时数据（本项目全部数据落在 data/）
+# ------------------------------------------------------------
+data/
+!data/.gitkeep
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.mv.db
+*.trace.db
+
+# ------------------------------------------------------------
+# 三、日志与导出产物
+# ------------------------------------------------------------
+logs/
+*.log
+*.log.*
+exports/
+
+# ------------------------------------------------------------
+# 四、Java / Maven
+# ------------------------------------------------------------
+target/
+!.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+*.war
+*.ear
+hs_err_pid*
+replay_pid*
+dependency-reduced-pom.xml
+
+# ------------------------------------------------------------
+# 五、前端 / Node
+# ------------------------------------------------------------
+node_modules/
+.pnpm-store/
+frontend/dist/
+dist/
+build/
+.vite/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ------------------------------------------------------------
+# 六、IDE / 编辑器
+# ------------------------------------------------------------
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+.apt_generated
+.sts4-cache
+nbproject/
+nbdist/
+/.nb-gradle/
+
+# ------------------------------------------------------------
+# 七、操作系统
+# ------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
