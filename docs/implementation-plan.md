@@ -1175,7 +1175,7 @@ cost = ( input_tokens    × input_miss_price
 标准命令：
 
 ```powershell
-# 后端构建
+# 后端构建（.cache/maven-settings.xml 为机器本地文件，不入库，内容见下）
 mvn -B -s .cache/maven-settings.xml -DskipTests -f InterviewForge/pom.xml package
 
 # 前端依赖与构建
@@ -1185,6 +1185,15 @@ pnpm --dir frontend build
 
 # 前端产物嵌入后端
 Copy-Item frontend/dist/* InterviewForge/src/main/resources/static/ -Recurse -Force
+```
+
+`.cache/maven-settings.xml` 内容（路径按机器调整）：
+
+```xml
+<settings>
+  <localRepository>D:/path/to/project/.cache/m2</localRepository>
+  <offline>false</offline>
+</settings>
 ```
 
 ---
