@@ -27,7 +27,7 @@ git status -sb                 # 无 ahead 即已同步
 | 私钥 `%USERPROFILE%\.ssh\id_ed25519` | 存在，`ssh -T git@github.com` 通过 Win32 OpenSSH 返回 `Hi YMDOP!` ✅ |
 | 公钥是否已加入 GitHub | 是（认证成功即证明） |
 | `%USERPROFILE%\.ssh\config` 中的 github 映射 | 指向 `ssh.github.com:443`（22 端口不可用时常见写法）✅ |
-| Git 自带的 OpenSSH（`C:\Program Files\Git\usr\bin\ssh.exe`） | ❌ `Permission denied (publickey)` |
+| Git 自带的 OpenSSH（`C:\Program Files\Git\usr\bin\ssh.exe`） | ❌ 无法稳定认证：偶发一次复用已有连接可通过，之后持续 `Permission denied (publickey)` |
 | 让 Git 改用 Win32 OpenSSH（`GIT_SSH` / `core.sshCommand`） | ❌ 被安全策略禁止（禁止在 git 网络操作中覆盖 SSH 命令） |
 
 **根因**：Git 调用的是自带的 msys OpenSSH，它在当前环境下读不到可用的身份（与 Win32 OpenSSH 的密钥解析/权限判定不同）；而替换 Git 的 SSH 命令属于被禁止的操作。
