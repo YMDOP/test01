@@ -1,3 +1,64 @@
+# ============================================================
+# InterviewForge 运行配置
+# 约定：所有运行时可写数据只落在 app.data-dir（默认 ./data）
+# 密钥不写在本文件：通过环境变量 INTERVIEWFORGE_AI_API_KEY 注入
+# ============================================================
+
+server:
+  port: 8081
+  address: 127.0.0.1
+  shutdown: graceful
+
 spring:
   application:
     name: InterviewForge
+
+  datasource:
+    url: jdbc:sqlite:${app.data-dir}/interviewforge.db
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      pool-name: sqlite-pool
+      maximum-pool-size: 4
+      minimum-idle: 1
+      connection-timeout: 10000
+      read-only: false
+      # 连接级 PRAGMA，每条新连接都会执行
+      connection-init-sql: PRAGMA foreign_keys=ON
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      # P0 阶段无实体；P2 建表后改为 update，交付前改为 validate
+      ddl-auto: none
+    properties:
+      hibernate:
+        dialect: org.hibernate.community.dialect.SQLiteDialect
+        format_sql: true
+    show-sql: false
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 60MB
+
+  web:
+    resources:
+      static-locations: classpath:/static/
+
+  jackson:
+    default-property-inclusion: non_null
+    time-zone: Asia/Shanghai
+
+app:
+  # 相对路径以启动目录为基准；启动时会解析成绝对路径并打印
+  data-dir: ./data
+  version: 0.1.0
+  # 前端 dev server，仅用于开发期 CORS
+  dev-origin: http://localhost:5173
+
+logging:
+  level:
+    root: INFO
+    com.love.interviewforge: DEBUG
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"

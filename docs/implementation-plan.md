@@ -24,6 +24,7 @@
 |---|---|---|---|---|
 | v1.0 | 2026-10-30 | Lead | 初版：确定技术选型、数据模型、API、AI 记账口径、视觉系统、P0～P10 分阶段计划 | 全部 |
 | v1.1 | 2026-10-30 | Lead | 新增第 14 章「仓库、分支与密钥管理」；确认远端仓库与分支策略；明确密钥零入库三层策略 | 全部 |
+| v1.2 | 2026-10-30 | Lead | P0 完成；样式方案由 Tailwind 改为纯 CSS（记录原因）；新增 14.8 本机构建环境约定 | P0、P1 |
 
 ---
 
@@ -135,7 +136,7 @@
 | AI 客户端 | `RestClient` + Jackson | 随 Boot | 不引 Spring AI，便于精确记账 / 重试 / 超时 |
 | 前端构建 | Vite | 最新 | 快 |
 | 前端框架 | React + TypeScript | 18/19 | 生态与可维护性 |
-| 样式 | Tailwind CSS v4 + CSS 变量 | 4.x | 设计 Token 化，无组件库束缚 |
+| 样式 | 纯 CSS + CSS 变量（不引入 UI 框架 / 不用 Tailwind） | — | 视觉完全自定义；规避原生二进制依赖在受限环境下的构建风险 |
 | 图表 | 手写 SVG | — | 只需折线与进度条，避免引入图表库 |
 | 打包 | Maven 单 jar + 内嵌静态资源 | — | 双击即用 |
 
@@ -1040,7 +1041,7 @@ cost = ( input_tokens    × input_miss_price
 
 | 阶段 | 状态 | 开始日期 | 完成日期 | 实际人日 | 交付摘要 | 遗留问题 |
 |---|---|---|---|---|---|---|
-| P0 工程基线 | 未开始 | — | — | — | — | — |
+| P0 工程基线 | 已完成 | 2026-10-30 | 2026-10-30 | 0.5 | 后端可启动、`/api/health` 通、SQLite 自动建库、前端可构建并嵌入 jar、浏览器端联通 | Maven/pnpm 缓存须指向工作区内（见 14.8）；Tailwind 已移除 |
 | P1 视觉系统与外壳 | 未开始 | — | — | — | — | — |
 | P2 数据层与设置 | 未开始 | — | — | — | — | — |
 | P3 文档导入与切片 | 未开始 | — | — | — | — | — |
@@ -1061,6 +1062,10 @@ cost = ( input_tokens    × input_miss_price
 | 2026-10-30 | M0 | 采用 SQLite 单文件库 | 满足「全本地、可整目录迁移」 | 所有阶段 |
 | 2026-10-30 | M0 | 不引入 Spring AI，自写 AiClient | 需精确记账与重试控制 | P4 |
 | 2026-10-30 | M0 | 前端不引入组件库 | 黑客风需完全自定义 | P1 |
+| 2026-10-30 | P0 | 移除 Tailwind CSS，改用纯 CSS + 变量 | Tailwind v4 的 oxide 原生模块在受限构建环境中无法加载 | P1 |
+| 2026-10-30 | P0 | pnpm 改为 `nodeLinker: hoisted` | 默认符号链接布局下 vite 的传递依赖解析失败 | 全部前端 |
+| 2026-10-30 | P0 | 增加 `frontend/scripts/sandbox-shim.cjs` | 构建环境禁止 piped stdio 子进程，vite 的 `net use` 探测会 EPERM | 全部前端 |
+| 2026-10-30 | P0 | Maven 本地仓库指向 `.cache/m2`（`-s .cache/maven-settings.xml`） | 全局仓库在用户目录外，构建进程无写权限 | 全部后端 |
 
 ---
 
@@ -1154,6 +1159,33 @@ cost = ( input_tokens    × input_miss_price
 | R5 | `feat(exam): 模拟面试组卷与 AI 判分` | `m4-usable` |
 | R6 | `feat(stats,export): 统计、仪表盘与导出` | — |
 | R7 | `chore(release): 打包与验收` | `m5-delivery` |
+
+### 14.8 本机构建环境约定
+
+本项目开发在受限沙箱中执行，以下约定保证命令可复现：
+
+| 限制 | 现象 | 约定 |
+|---|---|---|
+| 只允许写工作区 | 全局 Maven 仓库 `C:\Java\...\mav-repo` 写入被拒 | 构建统一加 `-s .cache/maven-settings.xml`，本地仓库指向 `.cache/m2` |
+| 只允许写工作区 | 默认 npm 缓存位于用户目录 | pnpm 统一加 `--store-dir .cache/pnpm-store` |
+| 禁止 piped stdio 子进程 | `spawn EPERM` | 前端构建前置 `NODE_OPTIONS=--require frontend/scripts/sandbox-shim.cjs`，仅拦截 vite 的 `net use` 探测 |
+| 默认符号链接布局解析失败 | `vite` 的传递依赖 `MODULE_NOT_FOUND` | `frontend/pnpm-workspace.yaml` 固定 `nodeLinker: hoisted` |
+| HTTPS 出网受限 | `git push` 报 schannel 凭据错误 | 提交在本地完成，推送由人工执行 `git push` |
+
+标准命令：
+
+```powershell
+# 后端构建
+mvn -B -s .cache/maven-settings.xml -DskipTests -f InterviewForge/pom.xml package
+
+# 前端依赖与构建
+pnpm install --dir frontend --store-dir .cache/pnpm-store
+$env:NODE_OPTIONS="--require <abs>/frontend/scripts/sandbox-shim.cjs"
+pnpm --dir frontend build
+
+# 前端产物嵌入后端
+Copy-Item frontend/dist/* InterviewForge/src/main/resources/static/ -Recurse -Force
+```
 
 ---
 

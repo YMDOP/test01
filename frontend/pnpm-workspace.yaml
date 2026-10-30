@@ -1,0 +1,10 @@
+packages:
+  - '.'
+
+# 依赖布局：扁平 hoisted
+# 原因：pnpm 默认符号链接布局在当前环境下无法解析传递依赖
+# （vite 内部引用的 rolldown / picomatch 会报 MODULE_NOT_FOUND）。
+nodeLinker: hoisted
+
+# 关闭更新检查，避免构建期访问网络
+updateNotifier: false

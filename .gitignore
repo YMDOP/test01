@@ -83,6 +83,13 @@ npm-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# 构建缓存（Maven 本地仓库、pnpm store、构建日志）
+.cache/
+
+# 前端构建产物拷入后端后的位置（由构建脚本生成，不入库）
+InterviewForge/src/main/resources/static/
+target/
+
 # ------------------------------------------------------------
 # 六、IDE / 编辑器
 # ------------------------------------------------------------
