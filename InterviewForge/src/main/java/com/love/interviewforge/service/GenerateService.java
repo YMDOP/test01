@@ -1,6 +1,13 @@
 package com.love.interviewforge.service;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -740,8 +747,36 @@ public class GenerateService {
         return emitter;
     }
 
+    /** 重置前把数据库复制到 data/backup/，避免误删无法恢复。 */
+    private void backupDatabase() {
+        Path dataDir = com.love.interviewforge.config.AppPaths.resolve();
+        Path db = dataDir.resolve("interviewforge.db");
+        if (!Files.exists(db)) {
+            return;
+        }
+        // WAL 模式下必须先 checkpoint，否则只拷主文件会丢掉最近写入
+        try {
+            jdbcTemplate.execute("PRAGMA wal_checkpoint(TRUNCATE)");
+        } catch (RuntimeException e) {
+            log.warn("备份前 checkpoint 失败: {}", e.getMessage());
+        }
+        try {
+            Path backupDir = dataDir.resolve("backup");
+            Files.createDirectories(backupDir);
+            String stamp = LocalDateTime.now(ZoneId.of("Asia/Shanghai"))
+                    .format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+            Path target = backupDir.resolve("interviewforge-" + stamp + ".db");
+            Files.copy(db, target, StandardCopyOption.REPLACE_EXISTING);
+            log.info("重置前已备份数据库: {}", target);
+        } catch (IOException e) {
+            // 备份失败不阻断重置，但必须留下警告
+            log.warn("重置前备份数据库失败: {}", e.getMessage());
+        }
+    }
+
     @Transactional
     public ResetResult reset(boolean keepCategories) {
+        backupDatabase();
         Long before = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM question", Long.class);
         jdbcTemplate.update("DELETE FROM question");
         jdbcTemplate.update("DELETE FROM mastery");
