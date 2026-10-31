@@ -332,3 +332,164 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ============================================================
+   R4：题库抽屉 / 分类树 / 练习卡片
+   ============================================================ */
+.tree-parent {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.tree-children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 6px;
+}
+
+.tree-child {
+  padding-left: 22px;
+  font-size: var(--fs-12);
+}
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.drawer {
+  width: min(560px, 92vw);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: rgba(10, 12, 14, 0.98);
+  animation: drawer-in 160ms var(--ease);
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.drawer-head {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.drawer-foot {
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 14px;
+  font-size: var(--fs-12);
+  color: var(--dim);
+}
+
+.chunk-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: var(--fs-11);
+  color: var(--dim);
+  text-align: left;
+}
+
+.chunk-hit:hover {
+  border-color: var(--line-hover);
+  color: var(--ink);
+}
+
+.chunk-hit.selected {
+  border-color: rgba(182, 242, 74, 0.5);
+  background: rgba(182, 242, 74, 0.07);
+  color: var(--ink);
+}
+
+.practice-card {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 280px;
+}
+
+.practice-stem {
+  font-size: 16px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+.option {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  font-size: var(--fs-13);
+  line-height: 1.6;
+}
+
+.answer-box {
+  border: 1px solid rgba(34, 211, 238, 0.28);
+  background: rgba(34, 211, 238, 0.05);
+  border-radius: 2px;
+  padding: 12px 14px;
+  font-size: var(--fs-13);
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+
+/* R4 修正：表格单元格不换行、卡片头部筛选控件按内容宽度 */
+.table td,
+.table th {
+  white-space: nowrap;
+}
+
+.card-actions .select {
+  width: auto;
+  min-width: 120px;
+}
+
+.card-actions .input {
+  width: auto;
+}
+
+.card-actions .btn {
+  height: 26px;
+  padding: 0 10px;
+}
