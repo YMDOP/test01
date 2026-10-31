@@ -18,6 +18,7 @@ import { DataTable } from '@/components/DataTable'
 import { EmptyState } from '@/components/EmptyState'
 import { PageHead } from '@/components/PageHead'
 import { TerminalCard } from '@/components/TerminalCard'
+import { exportDownloadUrl, exportLibrary } from '@/api/export'
 
 const TYPE_LABEL: Record<string, string> = { SA: '简答', MC: '选择', TF: '判断' }
 const MASTERY_LABEL: Record<string, string> = {
@@ -48,6 +49,8 @@ export function LibraryPage() {
   const [data, setData] = useState<QuestionPage>({ items: [], total: 0 })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [exporting, setExporting] = useState('')
+  const [exportMessage, setExportMessage] = useState('')
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -162,6 +165,30 @@ export function LibraryPage() {
     }
   }
 
+  async function handleExport(format: 'MD' | 'XLSX') {
+    setExporting(format)
+    setExportMessage('')
+    setError('')
+    try {
+      const result = await exportLibrary({
+        format,
+        categoryId: selectedCategory ?? undefined,
+        includeAnswer: true,
+        includeExplanation: true,
+      })
+      const anchor = document.createElement('a')
+      anchor.href = exportDownloadUrl(result.id)
+      anchor.click()
+      setExportMessage(
+        `已导出 ${result.questionCount} 题（${format}，${Math.max(1, Math.round(result.sizeBytes / 1024))} KB）`,
+      )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setExporting('')
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(data.total / 20))
 
   return (
@@ -171,13 +198,37 @@ export function LibraryPage() {
         title="题库中心"
         desc="按分类浏览、编辑、删除题目；手工新增的题也必须绑定来源切片。"
         actions={
-          <button type="button" className="btn primary" onClick={openCreate}>
-            新增题目
-          </button>
+          <div className="row" style={{ gap: 8 }}>
+            <button
+              type="button"
+              className="btn"
+              disabled={exporting !== ''}
+              onClick={() => void handleExport('MD')}
+            >
+              {exporting === 'MD' ? '导出中…' : '导出 MD'}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              disabled={exporting !== ''}
+              onClick={() => void handleExport('XLSX')}
+            >
+              {exporting === 'XLSX' ? '导出中…' : '导出 XLSX'}
+            </button>
+            <button type="button" className="btn primary" onClick={openCreate}>
+              新增题目
+            </button>
+          </div>
         }
       />
 
       {error ? <p className="notice">{error}</p> : null}
+
+      {exportMessage ? (
+        <p className="settings-row-hint" style={{ color: 'var(--ok)' }}>
+          {exportMessage}
+        </p>
+      ) : null}
 
       <div className="split">
         <TerminalCard title="知识分类" subtitle="CATEGORIES">
