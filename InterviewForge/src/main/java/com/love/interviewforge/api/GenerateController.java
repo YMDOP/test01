@@ -65,4 +65,10 @@ public class GenerateController {
     public ApiResponse<Map<String, Object>> summary() {
         return ApiResponse.ok(generateService.summary());
     }
+
+    /** 两级分类树，附带每个二级分类的题量。 */
+    @GetMapping("/tree")
+    public ApiResponse<java.util.List<Map<String, Object>>> tree() {
+        return ApiResponse.ok(generateService.tree());
+    }
 }

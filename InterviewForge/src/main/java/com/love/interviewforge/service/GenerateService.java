@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -12,12 +13,14 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -38,25 +41,33 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * 分类 + 出题流水线。
+ * 题库生成流水线，三阶段：
  *
- * <p>两阶段：CLASSIFY（切片归入知识分类）→ GENERATE（按分类出题）。
- * 任务状态持久化到 generate_job / generate_job_step，进程重启后可续跑。</p>
+ * <pre>
+ * TAXONOMY  依据文档清单归纳两级分类树（一级领域 / 二级主题）
+ * ASSIGN    把切片归入「已确定」的二级分类，AI 只能选不能造
+ * GENERATE  每个二级分类各出一批题，保证每个分类都有题
+ * </pre>
+ *
+ * <p>任务状态持久化在 generate_job / generate_job_step，进程重启后自动续跑。</p>
  */
 @Service
 public class GenerateService {
 
     private static final Logger log = LoggerFactory.getLogger(GenerateService.class);
 
-    private static final int CLASSIFY_BATCH = 20;
+    private static final int ASSIGN_BATCH = 30;
     private static final int MAX_CHUNKS_PER_CATEGORY = 30;
-    /** 出题阶段最多处理的分类数，防止 AI 把分类拆得过细导致调用爆炸。 */
-    private static final int MAX_GENERATE_CATEGORIES = 15;
+    private static final int MAX_LEAVES_FOR_GENERATE = 20;
     private static final double CONFIRM_THRESHOLD = 5.0d;
     private static final int DEFAULT_MAX_CHUNKS = 300;
 
-    private static final String SYSTEM_CLASSIFY = "你是 Java 后端面试资料整理助手。只输出 JSON，不要解释。";
-    private static final String SYSTEM_GENERATE = "你是拥有 5 年经验的 Java 后端面试官，面向校招候选人出题。只输出 JSON，不要解释。";
+    private static final String SYSTEM_TAXONOMY =
+            "你是 Java 后端求职资料的整理专家。只输出 JSON，不要解释。";
+    private static final String SYSTEM_ASSIGN =
+            "你是资料归类助手。只能从给定的分类中选择，不得创造新分类。只输出 JSON。";
+    private static final String SYSTEM_GENERATE =
+            "你是拥有 5 年经验的 Java 后端面试官，面向校招候选人出题。只输出 JSON，不要解释。";
 
     private final ChunkRepository chunkRepository;
     private final CategoryRepository categoryRepository;
@@ -122,16 +133,11 @@ public class GenerateService {
     public Estimate estimate(int maxChunks) {
         int budget = maxChunks > 0 ? maxChunks : DEFAULT_MAX_CHUNKS;
         long unclassified = chunkRepository.countByCategoryIdIsNull();
-        int chunkCount = (int) Math.min(budget, unclassified > 0 ? unclassified : 0);
-        if (chunkCount == 0) {
-            chunkCount = (int) Math.min(budget, chunkRepository.count());
-        }
-        int classifyCalls = (int) Math.ceil(chunkCount / (double) CLASSIFY_BATCH);
-        int generateCalls = Math.min(MAX_GENERATE_CATEGORIES, Math.max(3, (int) Math.ceil(chunkCount / 60.0)));
-        int calls = classifyCalls + generateCalls;
+        int chunkCount = (int) Math.min(budget, unclassified > 0 ? unclassified : chunkRepository.count());
+        int assignCalls = (int) Math.ceil(chunkCount / (double) ASSIGN_BATCH);
+        int calls = 1 + assignCalls + Math.min(MAX_LEAVES_FOR_GENERATE, 12);
 
         PricingService.Price price = pricingService.priceFor("deepseek-chat");
-        // 单次调用粗估：输入 5000 token（未命中）+ 输出 2500 token
         double perCall = (5000 * price.inputMiss() + 2500 * price.output()) / 1_000_000d;
         double cost = calls * perCall;
         return new Estimate(chunkCount, calls, round6(cost), CONFIRM_THRESHOLD, cost > CONFIRM_THRESHOLD);
@@ -149,7 +155,7 @@ public class GenerateService {
         GenerateJob job = new GenerateJob();
         job.id = UUID.randomUUID().toString();
         job.status = "PENDING";
-        job.stage = "CLASSIFY";
+        job.stage = "TAXONOMY";
         job.paramsJson = "{\"maxChunks\":" + estimate.chunkCount() + "}";
         job.progress = 0;
         job.estimatedCost = estimate.estimatedCost();
@@ -180,11 +186,9 @@ public class GenerateService {
         });
     }
 
-    /** 重启后自动续跑未完成的任务。 */
     @EventListener(ApplicationReadyEvent.class)
     public void resumePendingJobs() {
-        List<GenerateJob> jobs = jobRepository.findByStatusIn(List.of("RUNNING"));
-        for (GenerateJob job : jobs) {
+        for (GenerateJob job : jobRepository.findByStatusIn(List.of("RUNNING"))) {
             log.info("发现未完成任务，继续执行: {}", job.id);
             start(job.id);
         }
@@ -201,8 +205,13 @@ public class GenerateService {
             persist(job);
             emit(job, "progress");
 
-            if (job.stage == null || "CLASSIFY".equals(job.stage)) {
-                classify(job);
+            if (job.stage == null || "TAXONOMY".equals(job.stage)) {
+                buildTaxonomy(job);
+                job.stage = "ASSIGN";
+                persist(job);
+            }
+            if ("ASSIGN".equals(job.stage)) {
+                assignChunks(job);
                 job.stage = "GENERATE";
                 persist(job);
             }
@@ -226,7 +235,135 @@ public class GenerateService {
         }
     }
 
-    private void classify(GenerateJob job) {
+    // ------------------------------------------------------------
+    // 阶段一：归纳两级分类树
+    // ------------------------------------------------------------
+
+    private void buildTaxonomy(GenerateJob job) {
+        List<Map<String, Object>> docs = jdbcTemplate.queryForList("""
+                SELECT d.id,
+                       d.filename,
+                       d.path,
+                       (SELECT c.heading_path FROM chunk c
+                         WHERE c.document_id = d.id AND c.heading_path IS NOT NULL AND c.heading_path <> ''
+                         ORDER BY c.ordinal LIMIT 1) AS heading
+                  FROM document d
+                 ORDER BY d.id
+                """);
+        if (docs.isEmpty()) {
+            throw new BusinessException(2001, "还没有导入文档");
+        }
+
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("下面是 Java 后端求职笔记库的文件清单（编号、文件名、首个章节）。\n")
+                .append("请归纳成两级分类树。\n\n");
+        for (int i = 0; i < docs.size(); i++) {
+            Map<String, Object> doc = docs.get(i);
+            prompt.append(i).append(". ")
+                    .append(doc.get("filename"));
+            Object heading = doc.get("heading");
+            if (heading != null && !String.valueOf(heading).isBlank()) {
+                prompt.append(" ｜ 章节: ").append(String.valueOf(heading));
+            }
+            prompt.append('\n');
+        }
+        prompt.append("""
+                
+                要求：
+                1. 一级分类 3 到 6 个，命名参考：「Java 八股」「项目实战」「实习经历」「面试准备与复盘」「算法刷题」
+                2. 每个一级下 2 到 8 个二级分类，二级必须具体、能直接出题
+                3. 二级分类总数 12 到 20 个，每个二级至少覆盖 2 个文件
+                4. 项目类二级用项目名（如「墨韵文书项目」「AI Doc 项目」）
+                   实习类二级用公司名（如「北京青蓝致远」「天津经济数字产业集团」）
+                5. 一级分类「Java 八股」的二级用技术主题（如「多线程」「集合」「JVM」「MySQL」），不要合并成一个「Java 基础」
+                6. 只输出 JSON：
+                {"tree":[{"name":"Java 八股","children":["多线程","JVM"]}],
+                 "documents":[{"index":0,"parent":"Java 八股","child":"多线程"}]}
+                """);
+
+        AiClient.ChatResult result = aiClient.chat("CLASSIFY", SYSTEM_TAXONOMY, prompt.toString(), 3000);
+        JsonNode root = parseJson(result.content());
+        JsonNode tree = root.path("tree");
+        if (!tree.isArray() || tree.isEmpty()) {
+            throw new BusinessException(3001, "模型未返回分类树");
+        }
+
+        int parents = 0;
+        int leaves = 0;
+        for (JsonNode node : tree) {
+            String parentName = node.path("name").asString("").trim();
+            if (parentName.isEmpty()) {
+                continue;
+            }
+            Category parent = findOrCreate(parentName, null, "领域");
+            parents++;
+            JsonNode children = node.path("children");
+            if (!children.isArray()) {
+                continue;
+            }
+            for (JsonNode childNode : children) {
+                String childName = childNode.asString("").trim();
+                if (childName.isEmpty()) {
+                    continue;
+                }
+                createLeaf(parent, childName);
+                leaves++;
+            }
+        }
+        log.info("分类树已建立: 一级 {} 个，二级 {} 个", parents, leaves);
+
+        job.message = "分类树：" + parents + " 个领域 / " + leaves + " 个主题";
+        job.progress = 15;
+        persist(job);
+        emit(job, "progress");
+    }
+
+    private Category findOrCreate(String name, Long parentId, String description) {
+        return categoryRepository.findByName(name).orElseGet(() -> {
+            Category created = new Category();
+            created.name = name;
+            created.description = description;
+            created.parentId = parentId;
+            created.origin = "AI";
+            created.createdAt = Instant.now().toString();
+            return categoryRepository.save(created);
+        });
+    }
+
+    private void createLeaf(Category parent, String childName) {
+        String qualified = parent.name + " / " + childName;
+        if (categoryRepository.findByName(qualified).isPresent()) {
+            return;
+        }
+        // 二级重名时用「父 / 子」作为展示名，避免唯一约束冲突
+        String name = categoryRepository.findByName(childName).isPresent() ? qualified : childName;
+        Category leaf = new Category();
+        leaf.name = name;
+        leaf.description = parent.name;
+        leaf.parentId = parent.id;
+        leaf.origin = "AI";
+        leaf.createdAt = Instant.now().toString();
+        categoryRepository.save(leaf);
+    }
+
+    // ------------------------------------------------------------
+    // 阶段二：把切片归入已有分类
+    // ------------------------------------------------------------
+
+    private void assignChunks(GenerateJob job) {
+        List<Category> leaves = categoryRepository.findByParentIdIsNotNullOrderByIdAsc();
+        if (leaves.isEmpty()) {
+            throw new BusinessException(2001, "没有可用的二级分类");
+        }
+        Map<String, Category> byLabel = new LinkedHashMap<>();
+        Map<Long, String> labelOf = new HashMap<>();
+        for (Category leaf : leaves) {
+            String parent = categoryRepository.findById(leaf.parentId).map(c -> c.name).orElse("");
+            String label = parent + " / " + leaf.name;
+            byLabel.put(label, leaf);
+            labelOf.put(leaf.id, label);
+        }
+
         int budget = readMaxChunks(job);
         List<Chunk> chunks = chunkRepository.findByCategoryIdIsNullOrderByIdAsc();
         if (chunks.size() > budget) {
@@ -235,114 +372,129 @@ public class GenerateService {
         job.totalChunks = chunks.size();
         persist(job);
 
+        String categoryList = String.join("\n", byLabel.keySet());
         int processed = 0;
         int failures = 0;
-        for (int start = 0; start < chunks.size(); start += CLASSIFY_BATCH) {
-            List<Chunk> batch = chunks.subList(start, Math.min(start + CLASSIFY_BATCH, chunks.size()));
+
+        for (int start = 0; start < chunks.size(); start += ASSIGN_BATCH) {
+            List<Chunk> batch = chunks.subList(start, Math.min(start + ASSIGN_BATCH, chunks.size()));
             try {
-                classifyBatch(batch);
+                assignBatch(batch, byLabel, categoryList);
             } catch (RuntimeException e) {
                 failures++;
-                log.warn("分类批次失败，跳过: start={} reason={}", start, e.getMessage());
+                log.warn("归类批次失败，跳过: start={} reason={}", start, e.getMessage());
             }
             processed += batch.size();
-            job.progress = (int) (45.0 * processed / Math.max(1, chunks.size()));
-            job.message = "分类中 " + Math.min(processed, chunks.size()) + "/" + chunks.size()
+            job.progress = 15 + (int) (35.0 * processed / Math.max(1, chunks.size()));
+            job.message = "归类中 " + Math.min(processed, chunks.size()) + "/" + chunks.size()
                     + (failures > 0 ? "（失败批次 " + failures + "）" : "");
             persist(job);
             emit(job, "progress");
         }
+
+        int rescued = rescueEmptyLeaves();
+        if (rescued > 0) {
+            job.message = "归类完成，兜底补齐 " + rescued + " 个分类";
+            persist(job);
+        }
     }
 
-    private void classifyBatch(List<Chunk> batch) {
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("下面是候选人笔记的 ").append(batch.size())
-                .append(" 个片段，编号从 0 开始。请按技术知识点分组命名。\n\n");
-
-        String existing = categoryRepository.findAll().stream()
-                .map(category -> category.name)
-                .limit(40)
-                .collect(java.util.stream.Collectors.joining("、"));
-        if (!existing.isEmpty()) {
-            prompt.append("已有分类（优先复用，禁止为同一主题新建同义分类）：").append(existing).append("\n\n");
+    /**
+     * 兜底：某个二级分类一条切片都没分到，就按分类名在正文里做关键词回捞，
+     * 避免「天津经济数字产业集团」这类只出现在正文里的分类被丢空。
+     */
+    private int rescueEmptyLeaves() {
+        int rescued = 0;
+        for (Category leaf : categoryRepository.findByParentIdIsNotNullOrderByIdAsc()) {
+            Long count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM chunk WHERE category_id = ?", Long.class, leaf.id);
+            if (count != null && count > 0) {
+                continue;
+            }
+            String key = leaf.name.length() > 6 ? leaf.name.substring(0, 6) : leaf.name;
+            List<Long> ids = jdbcTemplate.queryForList("""
+                    SELECT id FROM chunk WHERE text LIKE ?
+                     ORDER BY CASE WHEN category_id IS NULL THEN 0 ELSE 1 END, id
+                     LIMIT 10
+                    """, Long.class, "%" + key + "%");
+            for (Long id : ids) {
+                jdbcTemplate.update("UPDATE chunk SET category_id = ? WHERE id = ?", leaf.id, id);
+            }
+            if (!ids.isEmpty()) {
+                rescued++;
+                log.info("兜底归类: {} 回捞 {} 个切片", leaf.name, ids.size());
+            }
         }
+        return rescued;
+    }
 
+    private void assignBatch(List<Chunk> batch, Map<String, Category> byLabel, String categoryList) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("可选分类（只能从中选择，不得新建）：\n").append(categoryList).append("\n\n");
         for (int i = 0; i < batch.size(); i++) {
             prompt.append("### 片段 ").append(i).append('\n')
                     .append(batch.get(i).text).append("\n\n");
         }
         prompt.append("""
-                要求：
-                1. 分类名不超过 10 个字，使用业界通用叫法（如「MySQL 优化」「消息队列」「Spring Security」）
-                2. 每个片段必须且只能归入一个分类
-                3. 全库分类总数控制在 10 到 15 个之间；不要为单个知识点单独建类，相近主题必须合并
-                4. 输出 JSON：{"categories":[{"name":"分类名","description":"一句话说明"}],
-                   "assignments":[{"index":0,"category":"分类名"}]}
+                请为每个片段选择最贴切的一个分类（用「一级 / 二级」完整路径）。
+                输出 JSON：{"assignments":[{"index":0,"category":"Java 八股 / 多线程"}]}
                 """);
 
-        AiClient.ChatResult result = aiClient.chat("CLASSIFY", SYSTEM_CLASSIFY, prompt.toString(), 3000);
+        AiClient.ChatResult result = aiClient.chat("CLASSIFY", SYSTEM_ASSIGN, prompt.toString(), 3000);
         JsonNode root = parseJson(result.content());
-
-        Map<String, Category> byName = new HashMap<>();
-        categoryRepository.findAll().forEach(category -> byName.put(category.name, category));
-
-        JsonNode categories = root.path("categories");
-        if (categories.isArray()) {
-            for (JsonNode node : categories) {
-                String name = node.path("name").asString("").trim();
-                if (name.isEmpty()) {
-                    continue;
-                }
-                Category category = byName.computeIfAbsent(name, key -> {
-                    Category created = new Category();
-                    created.name = key;
-                    created.description = node.path("description").asString("");
-                    created.origin = "AI";
-                    created.createdAt = Instant.now().toString();
-                    return categoryRepository.save(created);
-                });
-                byName.put(name, category);
-            }
-        }
-
         JsonNode assignments = root.path("assignments");
-        if (assignments.isArray()) {
-            for (JsonNode node : assignments) {
-                int index = node.path("index").asInt(-1);
-                String name = node.path("category").asString("").trim();
-                if (index < 0 || index >= batch.size() || name.isEmpty()) {
-                    continue;
-                }
-                Category category = byName.get(name);
-                if (category == null) {
-                    continue;
-                }
-                Chunk chunk = batch.get(index);
-                chunk.categoryId = category.id;
-                chunkRepository.save(chunk);
+        if (!assignments.isArray()) {
+            throw new BusinessException(3001, "模型未返回 assignments 数组");
+        }
+        for (JsonNode node : assignments) {
+            int index = node.path("index").asInt(-1);
+            String label = node.path("category").asString("").trim();
+            if (index < 0 || index >= batch.size()) {
+                continue;
             }
+            Category category = byLabel.get(label);
+            if (category == null) {
+                continue;
+            }
+            Chunk chunk = batch.get(index);
+            chunk.categoryId = category.id;
+            chunkRepository.save(chunk);
         }
     }
+
+    // ------------------------------------------------------------
+    // 阶段三：按二级分类出题
+    // ------------------------------------------------------------
 
     private void generate(GenerateJob job) {
         Map<Long, Long> chunkCounts = new HashMap<>();
         jdbcTemplate.query(
                 "SELECT category_id, COUNT(*) AS c FROM chunk WHERE category_id IS NOT NULL GROUP BY category_id",
-                (org.springframework.jdbc.core.RowCallbackHandler) rs ->
-                        chunkCounts.put(rs.getLong("category_id"), rs.getLong("c")));
+                (RowCallbackHandler) rs -> chunkCounts.put(rs.getLong("category_id"), rs.getLong("c")));
 
-        List<Category> ranked = categoryRepository.findAll().stream()
-                .filter(category -> chunkCounts.getOrDefault(category.id, 0L) > 0)
-                .sorted(Comparator.comparingLong((Category category) -> chunkCounts.getOrDefault(category.id, 0L))
-                        .reversed())
-                .toList();
-
-        List<Category> categories = ranked.stream().limit(MAX_GENERATE_CATEGORIES).toList();
-        if (ranked.size() > categories.size()) {
-            log.info("分类过多（{} 个），本轮只处理切片最多的 {} 个", ranked.size(), MAX_GENERATE_CATEGORIES);
+        // 没分到切片的分类直接删掉，保证「每个分类都有题」
+        List<Category> leaves = categoryRepository.findByParentIdIsNotNullOrderByIdAsc();
+        for (Category leaf : leaves) {
+            if (chunkCounts.getOrDefault(leaf.id, 0L) == 0) {
+                categoryRepository.delete(leaf);
+            }
+        }
+        for (Category parent : categoryRepository.findByParentIdIsNullOrderByIdAsc()) {
+            boolean hasChild = categoryRepository.findByParentIdIsNotNullOrderByIdAsc().stream()
+                    .anyMatch(child -> parent.id.equals(child.parentId));
+            if (!hasChild) {
+                categoryRepository.delete(parent);
+            }
         }
 
+        List<Category> ranked = categoryRepository.findByParentIdIsNotNullOrderByIdAsc().stream()
+                .filter(leaf -> chunkCounts.getOrDefault(leaf.id, 0L) > 0)
+                .sorted(Comparator.comparingLong((Category leaf) -> chunkCounts.getOrDefault(leaf.id, 0L)).reversed())
+                .toList();
+        List<Category> categories = ranked.stream().limit(MAX_LEAVES_FOR_GENERATE).toList();
+
         job.totalCategories = categories.size();
+        job.message = "出题分类 " + categories.size() + " 个";
         persist(job);
 
         int done = 0;
@@ -367,7 +519,7 @@ public class GenerateService {
             }
 
             try {
-                int generated = generateCategory(job, category);
+                int generated = generateCategory(category);
                 step.status = "DONE";
                 step.questionCount = generated;
                 step.error = null;
@@ -385,17 +537,54 @@ public class GenerateService {
             progress(job, done, categories.size(), totalQuestions, category.name);
         }
 
+        // 出题失败或 0 题的分类重试一次；仍为 0 则删除，保证「有分类必有题」
+        int retried = 0;
+        for (Category category : categories) {
+            if (questionRepository.countByCategoryId(category.id) > 0 || retried >= 3) {
+                continue;
+            }
+            retried++;
+            try {
+                int generated = generateCategory(category);
+                totalQuestions += generated;
+                if (generated > 0) {
+                    job.message = "重试补齐 " + category.name + "（" + generated + " 题）";
+                    persist(job);
+                }
+            } catch (RuntimeException e) {
+                log.warn("重试出题仍失败: {} - {}", category.name, e.getMessage());
+            }
+        }
+
+        for (Category category : categories) {
+            if (questionRepository.countByCategoryId(category.id) == 0) {
+                stepRepository.findByJobIdAndCategoryId(job.id, category.id).ifPresent(stepRepository::delete);
+                categoryRepository.delete(category);
+                log.info("删除无题目的分类: {}", category.name);
+            }
+        }
+        for (Category parent : categoryRepository.findByParentIdIsNullOrderByIdAsc()) {
+            boolean hasChild = categoryRepository.findByParentIdIsNotNullOrderByIdAsc().stream()
+                    .anyMatch(child -> parent.id.equals(child.parentId));
+            if (!hasChild) {
+                categoryRepository.delete(parent);
+            }
+        }
+
         job.questionCount = totalQuestions;
         persist(job);
     }
 
-    private int generateCategory(GenerateJob job, Category category) {
+    private int generateCategory(Category category) {
         List<Chunk> chunks = chunkRepository.findByCategoryIdOrderByIdAsc(category.id).stream()
                 .limit(MAX_CHUNKS_PER_CATEGORY)
                 .toList();
+        String parent = category.parentId == null ? ""
+                : categoryRepository.findById(category.parentId).map(c -> c.name).orElse("");
 
         StringBuilder prompt = new StringBuilder();
-        prompt.append("【知识分类】").append(category.name).append("\n\n【参考资料】\n");
+        prompt.append("【一级分类】").append(parent).append('\n')
+                .append("【二级分类】").append(category.name).append("\n\n【参考资料】\n");
         for (int i = 0; i < chunks.size(); i++) {
             prompt.append("片段 ").append(i).append("：")
                     .append(chunks.get(i).text).append("\n\n");
@@ -406,7 +595,7 @@ public class GenerateService {
                 2. 优先出带项目场景的追问，不考纯背诵
                 3. 题型比例：简答 SA 约 50%，选择 MC 约 30%，判断 TF 约 20%
                 4. 选择题给 4 个选项，干扰项取自易混概念；判断题答案只能是 TRUE 或 FALSE
-                5. 题目数量由你根据资料丰富程度决定，不少于 10 道
+                5. 每个分类不少于 10 道题
                 6. 每题必须能对应到某个片段编号
                 输出 JSON：
                 {"questions":[
@@ -451,7 +640,6 @@ public class GenerateService {
         String explanation = node.path("explanation").asString("").trim();
         int sourceIndex = node.path("sourceIndex").asInt(-1);
 
-        // 三必填 + 来源，缺一拒绝入库
         if (stem.isEmpty() || answer.isEmpty() || explanation.isEmpty()) {
             return null;
         }
@@ -500,7 +688,7 @@ public class GenerateService {
     private void progress(GenerateJob job, int done, int total, int questions, String message) {
         job.doneCategories = done;
         job.questionCount = questions;
-        job.progress = total == 0 ? 90 : 45 + (int) (55.0 * done / total);
+        job.progress = total == 0 ? 90 : 50 + (int) (50.0 * done / total);
         job.message = "出题中 " + done + "/" + total + " · " + message;
         persist(job);
         emit(job, "progress");
@@ -534,7 +722,6 @@ public class GenerateService {
             return emitter;
         }
 
-        // 已结束的任务立刻补一帧终止事件并关闭，避免客户端一直挂着
         if ("DONE".equals(job.status) || "FAILED".equals(job.status)) {
             try {
                 emitter.send(SseEmitter.event()
@@ -582,6 +769,39 @@ public class GenerateService {
         body.put("byType", jdbcTemplate.queryForList(
                 "SELECT type, COUNT(*) AS cnt FROM question GROUP BY type"));
         return body;
+    }
+
+    /** 分类树，供前端渲染。 */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> tree() {
+        List<Category> all = categoryRepository.findAll();
+        Map<Long, Category> parents = new LinkedHashMap<>();
+        for (Category category : all) {
+            if (category.parentId == null) {
+                parents.put(category.id, category);
+            }
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Category parent : parents.values()) {
+            List<Map<String, Object>> children = new ArrayList<>();
+            for (Category child : all) {
+                if (parent.id.equals(child.parentId)) {
+                    Map<String, Object> node = new LinkedHashMap<>();
+                    node.put("id", child.id);
+                    node.put("name", child.name);
+                    node.put("questionCount",
+                            jdbcTemplate.queryForObject(
+                                    "SELECT COUNT(*) FROM question WHERE category_id = ?", Long.class, child.id));
+                    children.add(node);
+                }
+            }
+            Map<String, Object> node = new LinkedHashMap<>();
+            node.put("id", parent.id);
+            node.put("name", parent.name);
+            node.put("children", children);
+            result.add(node);
+        }
+        return result;
     }
 
     private void emit(GenerateJob job, String event) {

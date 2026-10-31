@@ -22,6 +22,10 @@ public class Category {
     @Column(columnDefinition = "TEXT")
     public String description;
 
+    /** 为空表示一级分类；否则指向父分类。 */
+    @Column(name = "parent_id")
+    public Long parentId;
+
     @Column(name = "sort_order", nullable = false)
     public int sortOrder;
 

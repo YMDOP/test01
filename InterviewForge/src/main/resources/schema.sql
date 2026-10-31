@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS category (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT    NOT NULL UNIQUE,
     description TEXT,
+    parent_id   INTEGER REFERENCES category (id) ON DELETE CASCADE,
     sort_order  INTEGER NOT NULL DEFAULT 0,
     origin      TEXT    NOT NULL DEFAULT 'AI',
     created_at  TEXT    NOT NULL
