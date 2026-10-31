@@ -89,7 +89,7 @@
                 <executions>
                     <execution>
                         <id>build-frontend</id>
-                        <phase>generate-resources</phase>
+                        <phase>prepare-package</phase>
                         <goals>
                             <goal>exec</goal>
                         </goals>
@@ -116,7 +116,7 @@
                 <executions>
                     <execution>
                         <id>copy-frontend-dist</id>
-                        <phase>process-classes</phase>
+                        <phase>prepare-package</phase>
                         <goals>
                             <goal>copy-resources</goal>
                         </goals>
